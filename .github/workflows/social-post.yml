@@ -13,9 +13,9 @@ on:
           - afternoon
           - night
   schedule:
-    - cron: "0 3 * * *"
-    - cron: "0 9 * * *"
-    - cron: "0 16 * * *"
+    - cron: "30 3 * * *"
+    - cron: "30 9 * * *"
+    - cron: "30 16 * * *"
 
 jobs:
   post:
