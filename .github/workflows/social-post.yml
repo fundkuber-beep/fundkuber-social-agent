@@ -47,7 +47,7 @@ jobs:
       - name: Generate post and image
         env:
           POST_SLOT: ${{ steps.slot.outputs.slot }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python src/agent.py
 
       - name: Publish image to public GitHub URL
@@ -71,6 +71,7 @@ jobs:
       - name: Publish to Facebook and Instagram
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_GRAPH_VERSION: v26.0
           FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
           INSTAGRAM_BUSINESS_ACCOUNT_ID: ${{ secrets.INSTAGRAM_BUSINESS_ACCOUNT_ID }}
           PUBLIC_IMAGE_URL: https://raw.githubusercontent.com/fundkuber-beep/fundkuber-social-agent/main/generated/posts/${{ steps.image.outputs.filename }}
