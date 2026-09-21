@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       slot:
-        description: "Post slot"
+        description: "Choose scheduled slot or publish immediately"
         required: true
-        default: "morning"
+        default: "publish_now"
         type: choice
         options:
+          - publish_now
           - morning
           - afternoon
           - night
@@ -33,7 +34,9 @@ jobs:
         id: slot
         shell: bash
         run: |
-          if [ -n "${{ inputs.slot }}" ]; then
+          if [ "${{ inputs.slot }}" = "publish_now" ]; then
+            echo "slot=now" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ inputs.slot }}" ]; then
             echo "slot=${{ inputs.slot }}" >> "$GITHUB_OUTPUT"
           else
             hour=$(TZ=Asia/Kolkata date +%H)
