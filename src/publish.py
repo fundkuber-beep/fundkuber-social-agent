@@ -115,9 +115,44 @@ def publish_facebook(page_token):
     print("Facebook published:", r.json())
 
 
-def publish_instagram(page_token):
+def resolve_instagram_id(page_token):
+    """Ask the Page which Instagram account is linked to it.
+
+    The linked account is authoritative; the INSTAGRAM_BUSINESS_ACCOUNT_ID secret is
+    only used as a fallback when the lookup returns nothing.
+    """
+    r = requests.get(
+        f"{GRAPH}/{PAGE_ID}",
+        params={
+            "fields": "instagram_business_account{id,username}",
+            "access_token": page_token,
+        },
+        timeout=30,
+    )
+    if not r.ok:
+        print("Could not look up the linked Instagram account. " + graph_error(r))
+        return IG_ID
+    linked = r.json().get("instagram_business_account")
+    if not linked:
+        print(
+            "No Instagram account is linked to this Facebook Page. Convert the account "
+            "to Business/Creator and link it under Instagram Settings > Account type "
+            "and tools > Connect to a Facebook Page."
+        )
+        return IG_ID
+    if IG_ID and str(linked["id"]) != IG_ID:
+        print(
+            "INSTAGRAM_BUSINESS_ACCOUNT_ID does not match the account linked to the Page; "
+            f"using the linked account @{linked.get('username')} instead."
+        )
+    else:
+        print(f"Linked Instagram account: @{linked.get('username')}")
+    return str(linked["id"])
+
+
+def publish_instagram(page_token, ig_id):
     r = requests.post(
-        f"{GRAPH}/{IG_ID}/media",
+        f"{GRAPH}/{ig_id}/media",
         data={"image_url": PUBLIC_URL, "caption": cap, "access_token": page_token},
         timeout=60,
     )
@@ -139,7 +174,7 @@ def publish_instagram(page_token):
         time.sleep(5)
 
     p = requests.post(
-        f"{GRAPH}/{IG_ID}/media_publish",
+        f"{GRAPH}/{ig_id}/media_publish",
         data={"creation_id": creation_id, "access_token": page_token},
         timeout=60,
     )
@@ -151,12 +186,13 @@ def publish_instagram(page_token):
 PAGE_TOKEN = get_page_token()
 publish_facebook(PAGE_TOKEN)
 
-if IG_ID:
+IG_TARGET = resolve_instagram_id(PAGE_TOKEN)
+if IG_TARGET:
     try:
-        publish_instagram(PAGE_TOKEN)
+        publish_instagram(PAGE_TOKEN, IG_TARGET)
     except Exception as exc:
         # Facebook already succeeded; surface Instagram problems without failing the run.
         print(f"::warning title=Instagram publish failed::{exc}")
         print(f"Instagram publish failed: {exc}", file=sys.stderr)
 else:
-    print("INSTAGRAM_BUSINESS_ACCOUNT_ID not set; skipping Instagram.")
+    print("No Instagram account available; skipping Instagram.")
