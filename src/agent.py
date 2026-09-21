@@ -18,11 +18,86 @@ FALLBACKS = {
  'night': [('Market se pehle apna behaviour samajhiye.', 'Fear aur excitement ke beech ek written investment plan useful ho sakta hai.'), ('Har trending investment har investor ke liye nahi hota.', 'Risk, horizon aur goal ko samajhkar decision lena important hai.')]
 }
 
-def content():
+def _parse_post(text, provider):
+    if not text:
+        raise RuntimeError(f"{provider} returned no text.")
+    text = text.strip()
+    fence = chr(96) * 3
+    if text.startswith(fence):
+        text = text.split("\n", 1)[1].rsplit(fence, 1)[0].strip()
+    try:
+        post = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"{provider} returned invalid JSON: {e}. Raw response: {text[:1500]}")
+    required = {"title", "body", "cta", "hashtags"}
+    if not required.issubset(post):
+        raise RuntimeError(f"{provider} response is missing required post fields.")
+    return post
+
+
+def _generate_openai(prompt):
     key = os.getenv("OPENAI_API_KEY")
     if not key:
-        raise SystemExit("OPENAI_API_KEY is required. Add it as a GitHub Actions secret so every manual/scheduled run creates the post with ChatGPT/OpenAI.")
+        raise RuntimeError("OPENAI_API_KEY is not configured.")
+    r = requests.post(
+        "https://api.openai.com/v1/responses",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json={"model": "gpt-5.6-luna", "input": prompt},
+        timeout=60,
+    )
+    if not r.ok:
+        raise RuntimeError(f"OpenAI HTTP {r.status_code}: {r.text[:1500]}")
+    data = r.json()
+    text = data.get("output_text")
+    if not text:
+        chunks = []
+        for item in data.get("output", []):
+            for part in item.get("content", []):
+                if isinstance(part, dict) and part.get("text"):
+                    chunks.append(part["text"])
+        text = "".join(chunks).strip()
+    return _parse_post(text, "OpenAI")
 
+
+def _generate_gemini(prompt):
+    key = os.getenv("GEMINI_API_KEY")
+    if not key:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
+    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": {
+                "type": "OBJECT",
+                "properties": {
+                    "title": {"type": "STRING"},
+                    "body": {"type": "STRING"},
+                    "cta": {"type": "STRING"},
+                    "hashtags": {"type": "ARRAY", "items": {"type": "STRING"}}
+                },
+                "required": ["title", "body", "cta", "hashtags"]
+            }
+        }
+    }
+    r = requests.post(
+        url,
+        headers={"x-goog-api-key": key, "Content-Type": "application/json"},
+        json=payload,
+        timeout=60,
+    )
+    if not r.ok:
+        raise RuntimeError(f"Gemini HTTP {r.status_code}: {r.text[:1500]}")
+    data = r.json()
+    try:
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError, TypeError):
+        raise RuntimeError(f"Gemini returned no usable text: {json.dumps(data)[:1500]}")
+    return _parse_post(text, "Gemini")
+
+
+def content():
     prompt = f"""
 Create ONE original social-media post for Fund Kuber for the {SLOT} slot.
 
@@ -41,36 +116,24 @@ body: 2-4 short sentences
 cta: one short call to action
 hashtags: array of 5-8 hashtags
 """
-    r = requests.post(
-        "https://api.openai.com/v1/responses",
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json={"model": "gpt-5.6-luna", "input": prompt},
-        timeout=60,
-    )
-    if not r.ok:
-        raise SystemExit(f"OpenAI content generation failed: HTTP {r.status_code}: {r.text[:1500]}")
 
-    data = r.json()
-    text = data.get("output_text")
-    if not text:
-        chunks = []
-        for item in data.get("output", []):
-            for part in item.get("content", []):
-                if isinstance(part, dict) and part.get("text"):
-                    chunks.append(part["text"])
-        text = "".join(chunks).strip()
-    if not text:
-        raise SystemExit("OpenAI returned no text.")
-    text = text.strip()
-    if text.startswith("```"): text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
     try:
-        post = json.loads(text)
-    except json.JSONDecodeError as e:
-        raise SystemExit(f"OpenAI returned invalid JSON: {e}. Raw response: {text[:1500]}")
-    required = {"title", "body", "cta", "hashtags"}
-    if not required.issubset(post):
-        raise SystemExit("OpenAI response is missing required post fields.")
-    return post
+        post = _generate_openai(prompt)
+        print("Content provider: OpenAI")
+        return post
+    except Exception as openai_error:
+        print(f"OpenAI failed; switching to Gemini: {openai_error}")
+
+    try:
+        post = _generate_gemini(prompt)
+        print("Content provider: Gemini")
+        return post
+    except Exception as gemini_error:
+        raise SystemExit(
+            "Both content providers failed. "
+            f"OpenAI: {openai_error}; Gemini: {gemini_error}"
+        )
+
 def font(size, bold=False):
     p = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf' if bold else '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
     return ImageFont.truetype(p, size)
