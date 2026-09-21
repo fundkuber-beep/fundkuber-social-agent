@@ -13,9 +13,28 @@ IG_ID = os.getenv('INSTAGRAM_BUSINESS_ACCOUNT_ID')
 SLOT = os.getenv('POST_SLOT', 'morning')
 
 FALLBACKS = {
- 'morning': [('SIP ka asli advantage sirf amount nahi, discipline hai.', 'Long-term investing mein consistency aur patience ka role important hota hai.'), ('Goal ke bina investment plan adhura ho sakta hai.', 'Pehle goal, phir time horizon, phir suitable investment approach.')],
- 'afternoon': [('Tax planning ko last-minute kaam mat banaiye.', 'Apni income, goals aur applicable tax rules ke context mein planning ko dekhiye.'), ('Insurance aur investment ka purpose alag hota hai.', 'Protection needs aur wealth-creation goals ko alag samajhna useful ho sakta hai.')],
- 'night': [('Market se pehle apna behaviour samajhiye.', 'Fear aur excitement ke beech ek written investment plan useful ho sakta hai.'), ('Har trending investment har investor ke liye nahi hota.', 'Risk, horizon aur goal ko samajhkar decision lena important hai.')]
+    'morning': [
+        ('SIP ka asli advantage sirf amount nahi, discipline hai.',
+         'Long-term investing mein consistency aur patience ka role important hota hai. Apne goals aur time horizon ko dhyan mein rakhkar investment plan banaiye.'),
+        ('Goal ke bina investment plan adhura ho sakta hai.',
+         'Pehle goal, phir time horizon, phir suitable investment approach. Financial planning ko step-by-step rakhna useful ho sakta hai.')
+    ],
+    'afternoon': [
+        ('Tax planning ko last-minute kaam mat banaiye.',
+         'Apni income, goals aur applicable tax rules ke context mein planning ko samajhna useful hai. Important decisions ke liye current rules verify karein.'),
+        ('Insurance aur investment ka purpose alag hota hai.',
+         'Protection needs aur wealth-creation goals ko alag samajhna useful ho sakta hai. Apni financial planning ko overall goals ke context mein dekhiye.')
+    ],
+    'night': [
+        ('Market se pehle apna behaviour samajhiye.',
+         'Fear aur excitement ke beech ek written investment plan useful ho sakta hai. Long-term decisions mein discipline aur patience important hain.'),
+        ('Har trending investment har investor ke liye nahi hota.',
+         'Risk, time horizon aur goal ko samajhkar decision lena important hai. Social media trend ko apni financial plan ka replacement na banayein.')
+    ],
+    'now': [
+        ('Aaj ka financial lesson: plan pehle, investment baad mein.',
+         'Goal, time horizon aur risk ko samajhna investment planning ka important starting point hai. Consistency aur patience long-term planning mein useful ho sakte hain.')
+    ]
 }
 
 def _parse_post(text, provider):
@@ -24,7 +43,8 @@ def _parse_post(text, provider):
     text = text.strip()
     fence = chr(96) * 3
     if text.startswith(fence):
-        text = text.split("\n", 1)[1].rsplit(fence, 1)[0].strip()
+        parts = text.split("\n", 1)
+        text = parts[1].rsplit(fence, 1)[0].strip() if len(parts) > 1 else text
     try:
         post = json.loads(text)
     except json.JSONDecodeError as e:
@@ -33,7 +53,6 @@ def _parse_post(text, provider):
     if not required.issubset(post):
         raise RuntimeError(f"{provider} response is missing required post fields.")
     return post
-
 
 def _generate_openai(prompt):
     key = os.getenv("OPENAI_API_KEY")
@@ -58,12 +77,11 @@ def _generate_openai(prompt):
         text = "".join(chunks).strip()
     return _parse_post(text, "OpenAI")
 
-
-def _generate_gemini(prompt):
+def _generate_gemini(prompt, model=None):
     key = os.getenv("GEMINI_API_KEY")
     if not key:
         raise RuntimeError("GEMINI_API_KEY is not configured.")
-    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+    model = model or os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -96,6 +114,15 @@ def _generate_gemini(prompt):
         raise RuntimeError(f"Gemini returned no usable text: {json.dumps(data)[:1500]}")
     return _parse_post(text, "Gemini")
 
+def _fallback_post():
+    choices = FALLBACKS.get(SLOT, FALLBACKS['now'])
+    title, body = random.choice(choices)
+    return {
+        "title": title,
+        "body": body,
+        "cta": "Financial planning ko simple aur disciplined rakhiye.",
+        "hashtags": ["#FundKuber", "#FinancialPlanning", "#MutualFunds", "#SIP", "#Investing", "#PersonalFinance"]
+    }
 
 def content():
     prompt = f"""
@@ -117,22 +144,38 @@ cta: one short call to action
 hashtags: array of 5-8 hashtags
 """
 
+    openai_error = None
+    gemini_errors = []
+
     try:
         post = _generate_openai(prompt)
         print("Content provider: OpenAI")
         return post
-    except Exception as openai_error:
-        print(f"OpenAI failed; switching to Gemini: {openai_error}")
+    except Exception as exc:
+        openai_error = str(exc)
+        print(f"OpenAI unavailable; switching to Gemini: {openai_error}")
 
-    try:
-        post = _generate_gemini(prompt)
-        print("Content provider: Gemini")
-        return post
-    except Exception as gemini_error:
-        raise SystemExit(
-            "Both content providers failed. "
-            f"OpenAI: {openai_error}; Gemini: {gemini_error}"
-        )
+    # Gemini can return temporary 503/429 errors. Retry with exponential backoff.
+    for attempt in range(1, 4):
+        try:
+            post = _generate_gemini(prompt)
+            print(f"Content provider: Gemini (attempt {attempt})")
+            return post
+        except Exception as exc:
+            err = str(exc)
+            gemini_errors.append(err)
+            print(f"Gemini attempt {attempt} failed: {err}")
+            if attempt < 3:
+                delay = 5 * (2 ** (attempt - 1))
+                print(f"Retrying Gemini in {delay} seconds...")
+                time.sleep(delay)
+
+    # Keep the scheduled social agent alive even during temporary provider outages.
+    # This deterministic educational fallback contains no return promises or personalized advice.
+    print("AI providers unavailable; using safe built-in fallback post.")
+    print(f"OpenAI error: {openai_error}")
+    print(f"Gemini errors: {gemini_errors}")
+    return _fallback_post()
 
 def font(size, bold=False):
     p = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf' if bold else '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
@@ -142,26 +185,46 @@ def wrap(draw, text, f, width):
     lines, cur = [], ''
     for word in text.split():
         test = (cur + ' ' + word).strip()
-        if draw.textbbox((0,0), test, font=f)[2] <= width: cur = test
-        else: lines.append(cur); cur = word
-    if cur: lines.append(cur)
+        if draw.textbbox((0,0), test, font=f)[2] <= width:
+            cur = test
+        else:
+            if cur:
+                lines.append(cur)
+            cur = word
+    if cur:
+        lines.append(cur)
     return lines
 
 def make_image(post):
-    r = requests.get(PHOTO_URL, timeout=30); r.raise_for_status()
-    im = Image.new('RGB', (1080,1350), 'white'); d = ImageDraw.Draw(im)
+    r = requests.get(PHOTO_URL, timeout=30)
+    r.raise_for_status()
+    im = Image.new('RGB', (1080,1350), 'white')
+    d = ImageDraw.Draw(im)
     d.rectangle((0,0,1080,180), fill=(245,245,245))
     d.text((60,45), 'FUND KUBER', font=font(58,True), fill=(20,20,20))
     d.text((62,112), WEBSITE.replace('https://',''), font=font(28), fill=(70,70,70))
     advisor = ImageOps.fit(Image.open(__import__('io').BytesIO(r.content)).convert('RGB'), (330,430), centering=(.5,.35))
     im.paste(advisor,(690,220))
-    y=250; tf=font(60,True); bf=font(34)
-    for line in wrap(d,post['title'],tf,580): d.text((60,y),line,font=tf,fill=(15,15,15)); y+=74
+    y=250
+    tf=font(60,True)
+    bf=font(34)
+    for line in wrap(d,post['title'],tf,580):
+        d.text((60,y),line,font=tf,fill=(15,15,15))
+        y+=74
     y+=30
-    for line in wrap(d,post['body'],bf,580): d.text((60,y),line,font=bf,fill=(55,55,55)); y+=48
-    y=max(y,700); d.text((60,y),'Connect with Fund Kuber',font=font(32,True),fill=(15,15,15)); y+=50
-    d.text((60,y),CONTACT,font=font(28),fill=(55,55,55)); y+=40; d.text((60,y),WEBSITE,font=font(26),fill=(55,55,55))
+    for line in wrap(d,post['body'],bf,580):
+        d.text((60,y),line,font=bf,fill=(55,55,55))
+        y+=48
+    y=max(y,700)
+    d.text((60,y),'Connect with Fund Kuber',font=font(32,True),fill=(15,15,15))
+    y+=50
+    d.text((60,y),CONTACT,font=font(28),fill=(55,55,55))
+    y+=40
+    d.text((60,y),WEBSITE,font=font(26),fill=(55,55,55))
     d.text((60,1250),'Educational content only. Mutual fund investments are subject to market risks.',font=font(18),fill=(90,90,90))
     im.save(ROOT/'post.jpg', quality=92)
 
-post=content(); (ROOT/'post.json').write_text(json.dumps(post,ensure_ascii=False,indent=2),encoding='utf-8'); make_image(post); print(json.dumps(post,ensure_ascii=False))
+post=content()
+(ROOT/'post.json').write_text(json.dumps(post,ensure_ascii=False,indent=2),encoding='utf-8')
+make_image(post)
+print(json.dumps(post,ensure_ascii=False))
