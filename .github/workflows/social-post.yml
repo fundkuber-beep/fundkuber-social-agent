@@ -51,6 +51,8 @@ jobs:
         env:
           POST_SLOT: ${{ steps.slot.outputs.slot }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-3.5-flash
         run: python src/agent.py
 
       - name: Publish image to public GitHub URL
