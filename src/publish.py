@@ -6,10 +6,12 @@ ROOT = Path(__file__).resolve().parents[1]
 WEBSITE = "https://fundkuberai.com/"
 PAGE_ID = os.getenv("FACEBOOK_PAGE_ID", "").strip()
 IG_ID = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID", "").strip()
+IG_TOKEN = os.getenv("INSTAGRAM_ACCESS_TOKEN", "").strip()
 USER_TOKEN = os.getenv("META_ACCESS_TOKEN", "").strip()
 PUBLIC_URL = os.getenv("PUBLIC_IMAGE_URL", "").strip()
 GRAPH_VERSION = os.getenv("META_GRAPH_VERSION", "v26.0")
 GRAPH = f"https://graph.facebook.com/{GRAPH_VERSION}"
+IG_GRAPH = f"https://graph.instagram.com/{GRAPH_VERSION}"
 IMAGE_PATH = Path(os.getenv("IMAGE_PATH", ROOT / "post.jpg"))
 
 missing = [
@@ -150,10 +152,16 @@ def resolve_instagram_id(page_token):
     return str(linked["id"])
 
 
-def publish_instagram(page_token, ig_id):
+def publish_instagram(base, node, token):
+    """Publish the image to Instagram.
+
+    base/node/token select the API flavour: Facebook login uses graph.facebook.com
+    with a Page token and the Instagram account id; Instagram login uses
+    graph.instagram.com with an Instagram user token and the node "me".
+    """
     r = requests.post(
-        f"{GRAPH}/{ig_id}/media",
-        data={"image_url": PUBLIC_URL, "caption": cap, "access_token": page_token},
+        f"{base}/{node}/media",
+        data={"image_url": PUBLIC_URL, "caption": cap, "access_token": token},
         timeout=60,
     )
     if not r.ok:
@@ -162,8 +170,8 @@ def publish_instagram(page_token, ig_id):
 
     for _ in range(12):
         s = requests.get(
-            f"{GRAPH}/{creation_id}",
-            params={"fields": "status_code", "access_token": page_token},
+            f"{base}/{creation_id}",
+            params={"fields": "status_code", "access_token": token},
             timeout=30,
         )
         status = s.json().get("status_code") if s.ok else None
@@ -174,8 +182,8 @@ def publish_instagram(page_token, ig_id):
         time.sleep(5)
 
     p = requests.post(
-        f"{GRAPH}/{ig_id}/media_publish",
-        data={"creation_id": creation_id, "access_token": page_token},
+        f"{base}/{node}/media_publish",
+        data={"creation_id": creation_id, "access_token": token},
         timeout=60,
     )
     if not p.ok:
@@ -186,10 +194,16 @@ def publish_instagram(page_token, ig_id):
 PAGE_TOKEN = get_page_token()
 publish_facebook(PAGE_TOKEN)
 
-IG_TARGET = resolve_instagram_id(PAGE_TOKEN)
-if IG_TARGET:
+if IG_TOKEN:
+    print("Instagram: using INSTAGRAM_ACCESS_TOKEN (Instagram login).")
+    ig_call = (IG_GRAPH, "me", IG_TOKEN)
+else:
+    ig_id = resolve_instagram_id(PAGE_TOKEN)
+    ig_call = (GRAPH, ig_id, PAGE_TOKEN) if ig_id else None
+
+if ig_call:
     try:
-        publish_instagram(PAGE_TOKEN, IG_TARGET)
+        publish_instagram(*ig_call)
     except Exception as exc:
         # Facebook already succeeded; surface Instagram problems without failing the run.
         print(f"::warning title=Instagram publish failed::{exc}")

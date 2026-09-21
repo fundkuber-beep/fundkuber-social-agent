@@ -79,5 +79,6 @@ jobs:
           META_GRAPH_VERSION: v26.0
           FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
           INSTAGRAM_BUSINESS_ACCOUNT_ID: ${{ secrets.INSTAGRAM_BUSINESS_ACCOUNT_ID }}
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
           PUBLIC_IMAGE_URL: https://raw.githubusercontent.com/fundkuber-beep/fundkuber-social-agent/main/generated/posts/${{ steps.image.outputs.filename }}
         run: python src/publish.py
