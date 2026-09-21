@@ -62,4 +62,4 @@ def make_image(post):
     d.text((60,1250),'Educational content only. Mutual fund investments are subject to market risks.',font=font(18),fill=(90,90,90))
     im.save(ROOT/'post.jpg', quality=92)
 
-post=content(); (ROOT/'post.json').write_text(json.dumps(post,ensure_ascii=False,indent=2),encoding='utf-8'); make_image(post); publish(post); print(json.dumps(post,ensure_ascii=False))
+post=content(); (ROOT/'post.json').write_text(json.dumps(post,ensure_ascii=False,indent=2),encoding='utf-8'); make_image(post); print(json.dumps(post,ensure_ascii=False))
