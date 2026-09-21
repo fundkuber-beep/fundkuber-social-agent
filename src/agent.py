@@ -62,14 +62,4 @@ def make_image(post):
     d.text((60,1250),'Educational content only. Mutual fund investments are subject to market risks.',font=font(18),fill=(90,90,90))
     im.save(ROOT/'post.jpg', quality=92)
 
-def publish(post):
-    public_url = os.getenv('PUBLIC_IMAGE_URL')
-    if not TOKEN or not public_url:
-        print('Publishing skipped: Meta credentials or public image URL missing.'); return
-    cap = post['title']+'\n\n'+post['body']+'\n\n'+post['cta']+'\n\n'+WEBSITE+'\n\n'+' '.join(post['hashtags'])
-    r=requests.post('https://graph.facebook.com/v23.0/'+PAGE_ID+'/photos',data={'url':public_url,'caption':cap,'access_token':TOKEN},timeout=45); r.raise_for_status()
-    r=requests.post('https://graph.facebook.com/v23.0/'+IG_ID+'/media',data={'image_url':public_url,'caption':cap,'access_token':TOKEN},timeout=45); r.raise_for_status()
-    cid=r.json()['id']; time.sleep(5)
-    r=requests.post('https://graph.facebook.com/v23.0/'+IG_ID+'/media_publish',data={'creation_id':cid,'access_token':TOKEN},timeout=45); r.raise_for_status()
-
 post=content(); (ROOT/'post.json').write_text(json.dumps(post,ensure_ascii=False,indent=2),encoding='utf-8'); make_image(post); publish(post); print(json.dumps(post,ensure_ascii=False))
