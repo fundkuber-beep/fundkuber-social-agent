@@ -19,19 +19,58 @@ FALLBACKS = {
 }
 
 def content():
-    key = os.getenv('GEMINI_API_KEY')
-    if key:
-        prompt = 'Create a short Hindi/Hinglish financial education post for Fund Kuber. Return ONLY JSON with title, body, cta, hashtags. No guaranteed returns, no personalized advice, no buy/sell recommendation, and do not mention expense ratio.'
-        try:
-            r = requests.post('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', params={'key': key}, json={'contents':[{'parts':[{'text': prompt}]}]}, timeout=40)
-            r.raise_for_status()
-            t = r.json()['candidates'][0]['content']['parts'][0]['text'].strip()
-            if t.startswith('```'): t = t.split('\n', 1)[1].rsplit('```', 1)[0]
-            return json.loads(t)
-        except Exception as e: print('Gemini fallback:', e)
-    title, body = random.choice(FALLBACKS[SLOT])
-    return {'title': title, 'body': body, 'cta': 'Apne financial goals par baat karne ke liye Fund Kuber se connect karein.', 'hashtags': ['#FundKuber','#MutualFunds','#SIP','#FinancialPlanning','#PersonalFinance']}
+    key = os.getenv("OPENAI_API_KEY")
+    if not key:
+        raise SystemExit("OPENAI_API_KEY is required. Add it as a GitHub Actions secret so every manual/scheduled run creates the post with ChatGPT/OpenAI.")
 
+    prompt = f"""
+Create ONE original social-media post for Fund Kuber for the {SLOT} slot.
+
+Brand: Fund Kuber
+Website: https://fundkuberai.com/
+Contact: 7982475291
+Audience: Indian retail investors
+Language: natural Hindi/Hinglish, simple and professional.
+Purpose: financial education + brand awareness.
+Do not promise returns. Do not give personalized investment advice. Do not give buy/sell recommendations.
+Do not mention expense ratio.
+Do not claim to be a SEBI-registered investment adviser.
+Return ONLY valid JSON with exactly these keys:
+title: short headline
+body: 2-4 short sentences
+cta: one short call to action
+hashtags: array of 5-8 hashtags
+"""
+    r = requests.post(
+        "https://api.openai.com/v1/responses",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json={"model": "gpt-5.6-luna", "input": prompt},
+        timeout=60,
+    )
+    if not r.ok:
+        raise SystemExit(f"OpenAI content generation failed: HTTP {r.status_code}: {r.text[:1500]}")
+
+    data = r.json()
+    text = data.get("output_text")
+    if not text:
+        chunks = []
+        for item in data.get("output", []):
+            for part in item.get("content", []):
+                if isinstance(part, dict) and part.get("text"):
+                    chunks.append(part["text"])
+        text = "".join(chunks).strip()
+    if not text:
+        raise SystemExit("OpenAI returned no text.")
+    text = text.strip()
+    if text.startswith("```"): text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    try:
+        post = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"OpenAI returned invalid JSON: {e}. Raw response: {text[:1500]}")
+    required = {"title", "body", "cta", "hashtags"}
+    if not required.issubset(post):
+        raise SystemExit("OpenAI response is missing required post fields.")
+    return post
 def font(size, bold=False):
     p = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf' if bold else '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
     return ImageFont.truetype(p, size)
